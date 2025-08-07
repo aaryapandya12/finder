@@ -34,6 +34,24 @@ def send_email(to_email, subject, body):
         st.error(f"Email send failed: {str(e)}")
         return False
 
+def get_email_from_hunter(full_name, domain):
+    hunter_api_key = os.getenv("HUNTER_API_KEY")
+    if not hunter_api_key:
+        return None
+
+    try:
+        url = "https://api.hunter.io/v2/email-finder"
+        params = {
+            "full_name": full_name,
+            "domain": domain,
+            "api_key": hunter_api_key
+        }
+        response = requests.get(url, params=params)
+        data = response.json()
+        return data.get("data", {}).get("email", None)
+    except:
+        return None
+
 def generate_mock_hr_data(company, role):
     domains = {
         "Google": "google.com",
@@ -87,10 +105,15 @@ def search_linkedin_hr(company_name, job_title):
             title = result.get("title", "")
             link = result.get("link", "")
             if "linkedin.com/in" in link:
+                full_name = title.split(" - ")[0].strip()
+                job_title = title.split(" - ")[1].strip() if " - " in title else "Unknown"
+                domain = company_name.lower().replace(" ", "") + ".com"
+                email = get_email_from_hunter(full_name, domain)
+
                 people.append({
-                    "Name": title.split(" - ")[0].strip(),
-                    "Title": title.split(" - ")[1].strip() if " - " in title else "Unknown",
-                    "Email": "Not available",
+                    "Name": full_name,
+                    "Title": job_title,
+                    "Email": email if email else "Not available",
                     "LinkedIn": link,
                     "Company": company_name,
                     "Department": "Unknown"
@@ -167,10 +190,13 @@ def main():
 
         if not st.session_state.hr_data.empty:
             st.success(f"✅ Found {len(st.session_state.hr_data)} HR contacts at {company}")
+            num_with_email = st.session_state.hr_data['Email'].apply(lambda x: x != "Not available").sum()
+            st.info(f"📧 {num_with_email} out of {len(st.session_state.hr_data)} contacts have emails found via Hunter.io")
+
             st.dataframe(st.session_state.hr_data, use_container_width=True)
 
             st.download_button(
-                label="📥 Download Contacts as CSV",
+                label="📅 Download Contacts as CSV",
                 data=st.session_state.hr_data.to_csv(index=False),
                 file_name=f"hr_contacts_{company}_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime='text/csv'
@@ -222,7 +248,6 @@ def main():
                     progress.progress((i + 1) / len(selected_contacts))
 
                 st.success(f"🎉 Finished sending {len(selected_contacts)} emails!")
-
 
 if __name__ == "__main__":
     main()
